@@ -1,0 +1,5 @@
+# local databases
+web/data/
+# env
+**/.env.local
+**/.env*.local

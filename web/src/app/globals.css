@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #faf8f4;
+  --paper-raised: #ffffff;
+  --ink: #14181d;
+  --ink-soft: #4a5158;
+  --ink-faint: #8a9099;
+  --line: #e6e1d8;
+  --bronze: #9a7b4f;
+  --bronze-soft: #f0e9dd;
+  --navy: #1d2a3a;
+  --green: #2f6b4f;
+  --green-soft: #e4efe9;
+  --red: #a23b3b;
+  --red-soft: #f6e7e7;
+  --amber: #9a6b2f;
+  --amber-soft: #f5edda;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-raised: var(--paper-raised);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-bronze: var(--bronze);
+  --color-bronze-soft: var(--bronze-soft);
+  --color-navy: var(--navy);
+  --color-green: var(--green);
+  --color-green-soft: var(--green-soft);
+  --color-red: var(--red);
+  --color-red-soft: var(--red-soft);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-inter);
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+h1, h2, h3, .font-display {
+  font-family: var(--font-fraunces), Georgia, serif;
+}
+
+::selection {
+  background: var(--bronze-soft);
+}
