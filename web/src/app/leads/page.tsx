@@ -6,9 +6,9 @@ import { PIPELINE_STAGES, STAGE_LABELS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export default function LeadsPage() {
-  const firm = getFirm();
-  const leads = listLeads();
+export default async function LeadsPage() {
+  const firm = await getFirm();
+  const leads = await listLeads();
   const parked = leads.filter((l) => ["declined", "referred_out", "conflict"].includes(l.stage));
 
   return (

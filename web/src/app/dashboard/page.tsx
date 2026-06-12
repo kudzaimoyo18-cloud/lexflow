@@ -5,17 +5,18 @@ import { getFirm, listLeads, listMatters, listAudit, listAllConflicts } from "@/
 
 export const dynamic = "force-dynamic";
 
-export default function DashboardPage() {
-  const firm = getFirm();
-  const leads = listLeads();
-  const matters = listMatters();
-  const audit = listAudit(8);
+export default async function DashboardPage() {
+  const firm = await getFirm();
+  const leads = await listLeads();
+  const matters = await listMatters();
+  const audit = await listAudit(8);
+  const allConflicts = await listAllConflicts();
 
   const signed = leads.filter((l) => l.stage === "signed");
   const open = leads.filter(
     (l) => !["signed", "declined", "referred_out"].includes(l.stage)
   );
-  const conflicts = listAllConflicts().filter((c) => c.status === "hit_review");
+  const conflicts = allConflicts.filter((c) => c.status === "hit_review");
   const responseTimes = leads
     .map((l) => l.firstResponseSeconds)
     .filter((s): s is number => s != null);

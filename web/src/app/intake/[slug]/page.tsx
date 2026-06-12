@@ -8,7 +8,7 @@ type Props = { params: Promise<{ slug: string }> };
 
 export default async function IntakePage({ params }: Props) {
   await params; // single-firm demo: slug reserved for multi-tenant routing
-  const firm = getFirm();
+  const firm = await getFirm();
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-6 py-10">

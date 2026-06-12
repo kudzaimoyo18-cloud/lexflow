@@ -12,19 +12,19 @@ export async function POST(req: NextRequest) {
   if (!leadId || !message) {
     return NextResponse.json({ error: "leadId and message are required" }, { status: 400 });
   }
-  const lead = getLead(leadId);
+  const lead = await getLead(leadId);
   if (!lead) return NextResponse.json({ error: "lead not found" }, { status: 404 });
 
-  const firm = getFirm();
-  const history = listMessages(leadId);
-  addMessage(leadId, "prospect", message);
+  const firm = await getFirm();
+  const history = await listMessages(leadId);
+  await addMessage(leadId, "prospect", message);
 
   const turn = await intakeTurn(firm, lead, history, message);
-  if (Object.keys(turn.fields).length) updateLead(leadId, turn.fields);
-  addMessage(leadId, "ai", turn.reply);
+  if (Object.keys(turn.fields).length) await updateLead(leadId, turn.fields);
+  await addMessage(leadId, "ai", turn.reply);
 
   if (turn.done) {
-    const updated = getLead(leadId)!;
+    const updated = (await getLead(leadId))!;
     // qualification: inside practice areas?
     const inArea = updated.matterType
       ? firm.practiceAreas.some((a) => a.toLowerCase() === updated.matterType!.toLowerCase())
@@ -32,34 +32,35 @@ export async function POST(req: NextRequest) {
 
     // conflict checks on every named party
     const parties = [...updated.otherParties];
-    const hits = parties
-      .map((p) => runConflictCheck(leadId, p))
-      .filter((c) => c.status === "hit_review");
+    const checks = [];
+    for (const p of parties) checks.push(await runConflictCheck(leadId, p));
+    const hits = checks.filter((c) => c.status === "hit_review");
 
     if (hits.length) {
-      updateLead(leadId, {
+      await updateLead(leadId, {
         qualification: "conflict",
         qualificationReason: `Potential conflict: ${hits.map((h) => h.partyName).join(", ")} matches existing firm contacts.`,
         aiSummary: buildPreBrief(updated),
       });
-      moveStage(leadId, "conflict", "ai");
+      await moveStage(leadId, "conflict", "ai");
     } else if (inArea) {
-      updateLead(leadId, {
+      await updateLead(leadId, {
         qualification: "qualified",
         qualificationReason: `${updated.matterType} is a core practice area.`,
         aiSummary: buildPreBrief(updated),
       });
-      moveStage(leadId, "qualified", "ai");
+      await moveStage(leadId, "qualified", "ai");
     } else {
-      updateLead(leadId, {
+      await updateLead(leadId, {
         qualification: "refer_out",
         qualificationReason: `${updated.matterType ?? "Matter"} is outside firm practice areas.`,
         aiSummary: buildPreBrief(updated),
       });
-      moveStage(leadId, "referred_out", "ai");
+      await moveStage(leadId, "referred_out", "ai");
     }
-    audit("ai", "lead.intake_completed", "lead", leadId);
-    addMessage(leadId, "system", `Intake complete. Qualification: ${getLead(leadId)!.qualification}. Conflict checks: ${parties.length ? parties.join(", ") : "none required"}.`);
+    await audit("ai", "lead.intake_completed", "lead", leadId);
+    const final = (await getLead(leadId))!;
+    await addMessage(leadId, "system", `Intake complete. Qualification: ${final.qualification}. Conflict checks: ${parties.length ? parties.join(", ") : "none required"}.`);
   }
 
   return NextResponse.json({ reply: turn.reply, done: turn.done });

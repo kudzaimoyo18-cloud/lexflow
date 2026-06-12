@@ -1,6 +1,6 @@
-// Data access layer — SQLite-backed (data/lexflow.db).
-// Same function signatures as the original in-memory store; callers unchanged.
-import { getDb } from "./db";
+// Data access layer — async, driver-agnostic (Neon Postgres in prod,
+// SQLite locally; see query.ts).
+import { q, qOne, type Row } from "./query";
 import type {
   Firm, Profile, Contact, Lead, IntakeMessage, ConflictCheck,
   EngagementTemplate, EngagementLetter, Matter, MatterTask, AuditEntry, Stage,
@@ -9,7 +9,6 @@ import type {
 const now = () => new Date().toISOString();
 const uid = (p: string) => `${p}-${Math.random().toString(36).slice(2, 10)}`;
 
-type Row = Record<string, unknown>;
 const s = (v: unknown) => (v == null ? undefined : String(v));
 const n = (v: unknown) => (v == null ? undefined : Number(v));
 
@@ -120,85 +119,85 @@ function rowToContact(r: Row): Contact {
   };
 }
 
-export function audit(actor: string, action: string, entity: string, entityId?: string, detail?: Record<string, unknown>) {
-  const db = getDb();
-  const firm = getFirm();
-  db.prepare(
-    "insert into audit_log (firm_id, actor, action, entity, entity_id, detail, created_at) values (?, ?, ?, ?, ?, ?, ?)"
-  ).run(firm.id, actor, action, entity, entityId ?? null, detail ? JSON.stringify(detail) : null, now());
+export async function audit(actor: string, action: string, entity: string, entityId?: string, detail?: Record<string, unknown>) {
+  const firm = await getFirm();
+  await q(
+    "insert into audit_log (firm_id, actor, action, entity, entity_id, detail, created_at) values (?, ?, ?, ?, ?, ?, ?)",
+    [firm.id, actor, action, entity, entityId ?? null, detail ? JSON.stringify(detail) : null, now()]
+  );
 }
 
 // ---------- reads ----------
-export function getFirm(): Firm {
-  return rowToFirm(getDb().prepare("select * from firms limit 1").get() as Row);
+export async function getFirm(): Promise<Firm> {
+  return rowToFirm((await qOne("select * from firms limit 1"))!);
 }
 
-export function getProfiles(): Profile[] {
-  return (getDb().prepare("select * from profiles").all() as Row[]).map((r) => ({
+export async function getProfiles(): Promise<Profile[]> {
+  return (await q("select * from profiles")).map((r) => ({
     id: String(r.id), firmId: String(r.firm_id), fullName: String(r.full_name),
     email: String(r.email), role: String(r.role) as Profile["role"],
   }));
 }
 
-export function listLeads(): Lead[] {
-  return (getDb().prepare("select * from leads order by created_at desc").all() as Row[]).map(rowToLead);
+export async function listLeads(): Promise<Lead[]> {
+  return (await q("select * from leads order by created_at desc")).map(rowToLead);
 }
 
-export function getLead(id: string): Lead | undefined {
-  const r = getDb().prepare("select * from leads where id = ?").get(id) as Row | undefined;
+export async function getLead(id: string): Promise<Lead | undefined> {
+  const r = await qOne("select * from leads where id = ?", [id]);
   return r ? rowToLead(r) : undefined;
 }
 
-export function listMessages(leadId: string): IntakeMessage[] {
-  return (getDb().prepare("select * from intake_messages where lead_id = ? order by created_at, id").all(leadId) as Row[]).map(rowToMessage);
+export async function listMessages(leadId: string): Promise<IntakeMessage[]> {
+  return (await q("select * from intake_messages where lead_id = ? order by created_at, id", [leadId])).map(rowToMessage);
 }
 
-export function listConflicts(leadId: string): ConflictCheck[] {
-  return (getDb().prepare("select * from conflict_checks where lead_id = ?").all(leadId) as Row[]).map(rowToConflict);
+export async function listConflicts(leadId: string): Promise<ConflictCheck[]> {
+  return (await q("select * from conflict_checks where lead_id = ?", [leadId])).map(rowToConflict);
 }
 
-export function listAllConflicts(): ConflictCheck[] {
-  return (getDb().prepare("select * from conflict_checks").all() as Row[]).map(rowToConflict);
+export async function listAllConflicts(): Promise<ConflictCheck[]> {
+  return (await q("select * from conflict_checks")).map(rowToConflict);
 }
 
-export function listTemplates(): EngagementTemplate[] {
-  return (getDb().prepare("select * from engagement_templates").all() as Row[]).map(rowToTemplate);
+export async function listTemplates(): Promise<EngagementTemplate[]> {
+  return (await q("select * from engagement_templates")).map(rowToTemplate);
 }
 
-export function getTemplate(id: string): EngagementTemplate | undefined {
-  const r = getDb().prepare("select * from engagement_templates where id = ?").get(id) as Row | undefined;
+export async function getTemplate(id: string): Promise<EngagementTemplate | undefined> {
+  const r = await qOne("select * from engagement_templates where id = ?", [id]);
   return r ? rowToTemplate(r) : undefined;
 }
 
-export function getLetterForLead(leadId: string): EngagementLetter | undefined {
-  const r = getDb().prepare("select * from engagement_letters where lead_id = ? order by created_at desc limit 1").get(leadId) as Row | undefined;
+export async function getLetterForLead(leadId: string): Promise<EngagementLetter | undefined> {
+  const r = await qOne("select * from engagement_letters where lead_id = ? order by created_at desc limit 1", [leadId]);
   return r ? rowToLetter(r) : undefined;
 }
 
-export function getLetter(id: string): EngagementLetter | undefined {
-  const r = getDb().prepare("select * from engagement_letters where id = ?").get(id) as Row | undefined;
+export async function getLetter(id: string): Promise<EngagementLetter | undefined> {
+  const r = await qOne("select * from engagement_letters where id = ?", [id]);
   return r ? rowToLetter(r) : undefined;
 }
 
-export function listMatters(): Matter[] {
-  return (getDb().prepare("select * from matters order by opened_at desc").all() as Row[]).map(rowToMatter);
+export async function listMatters(): Promise<Matter[]> {
+  return (await q("select * from matters order by opened_at desc")).map(rowToMatter);
 }
 
-export function getMatter(id: string): Matter | undefined {
-  const r = getDb().prepare("select * from matters where id = ?").get(id) as Row | undefined;
+export async function getMatter(id: string): Promise<Matter | undefined> {
+  const r = await qOne("select * from matters where id = ?", [id]);
   return r ? rowToMatter(r) : undefined;
 }
 
-export function listTasks(matterId: string): MatterTask[] {
-  return (getDb().prepare("select * from matter_tasks where matter_id = ?").all(matterId) as Row[]).map(rowToTask);
+export async function listTasks(matterId: string): Promise<MatterTask[]> {
+  return (await q("select * from matter_tasks where matter_id = ?", [matterId])).map(rowToTask);
 }
 
-export function listContacts(): Contact[] {
-  return (getDb().prepare("select * from contacts").all() as Row[]).map(rowToContact);
+export async function listContacts(): Promise<Contact[]> {
+  return (await q("select * from contacts")).map(rowToContact);
 }
 
-export function listAudit(limit = 50): AuditEntry[] {
-  return (getDb().prepare("select * from audit_log order by id desc limit ?").all(limit) as Row[]).map((r) => ({
+export async function listAudit(limit = 50): Promise<AuditEntry[]> {
+  return (await q("select * from audit_log order by id desc limit ?", [limit])).map((r) => ({
     id: Number(r.id), firmId: String(r.firm_id), actor: String(r.actor),
     action: String(r.action), entity: String(r.entity), entityId: s(r.entity_id),
     detail: r.detail ? (JSON.parse(String(r.detail)) as Record<string, unknown>) : undefined,
@@ -207,27 +206,27 @@ export function listAudit(limit = 50): AuditEntry[] {
 }
 
 // ---------- intake ----------
-export function createLead(channel: Lead["channel"]): Lead {
-  const db = getDb();
-  const firm = getFirm();
+export async function createLead(channel: Lead["channel"]): Promise<Lead> {
+  const firm = await getFirm();
   const id = uid("l");
   const ts = now();
-  db.prepare(
-    `insert into leads (id, firm_id, channel, other_parties, stage, first_response_seconds, created_at, updated_at)
-     values (?, ?, ?, '[]', 'qualifying', ?, ?, ?)`
-  ).run(id, firm.id, channel, Math.floor(Math.random() * 20) + 4, ts, ts);
-  audit("ai", "lead.created", "lead", id, { channel });
-  return getLead(id)!;
+  await q(
+    "insert into leads (id, firm_id, channel, other_parties, stage, first_response_seconds, created_at, updated_at) values (?, ?, ?, '[]', 'qualifying', ?, ?, ?)",
+    [id, firm.id, channel, Math.floor(Math.random() * 20) + 4, ts, ts]
+  );
+  await audit("ai", "lead.created", "lead", id, { channel });
+  return (await getLead(id))!;
 }
 
-export function addMessage(leadId: string, sender: IntakeMessage["sender"], body: string): IntakeMessage {
-  const db = getDb();
-  const firm = getFirm();
+export async function addMessage(leadId: string, sender: IntakeMessage["sender"], body: string): Promise<IntakeMessage> {
+  const firm = await getFirm();
   const id = uid("im");
-  db.prepare(
-    "insert into intake_messages (id, firm_id, lead_id, sender, body, created_at) values (?, ?, ?, ?, ?, ?)"
-  ).run(id, firm.id, leadId, sender, body, now());
-  return { id, firmId: firm.id, leadId, sender, body, createdAt: now() };
+  const ts = now();
+  await q(
+    "insert into intake_messages (id, firm_id, lead_id, sender, body, created_at) values (?, ?, ?, ?, ?, ?)",
+    [id, firm.id, leadId, sender, body, ts]
+  );
+  return { id, firmId: firm.id, leadId, sender, body, createdAt: ts };
 }
 
 const LEAD_COLS: Record<string, string> = {
@@ -240,8 +239,7 @@ const LEAD_COLS: Record<string, string> = {
   consultAt: "consult_at", assignedTo: "assigned_to", convertedMatterId: "converted_matter_id",
 };
 
-export function updateLead(id: string, patch: Partial<Lead>): Lead | undefined {
-  const db = getDb();
+export async function updateLead(id: string, patch: Partial<Lead>): Promise<Lead | undefined> {
   const sets: string[] = [];
   const vals: unknown[] = [];
   for (const [key, col] of Object.entries(LEAD_COLS)) {
@@ -254,13 +252,13 @@ export function updateLead(id: string, patch: Partial<Lead>): Lead | undefined {
   if (sets.length === 0) return getLead(id);
   sets.push("updated_at = ?");
   vals.push(now(), id);
-  db.prepare(`update leads set ${sets.join(", ")} where id = ?`).run(...vals);
+  await q(`update leads set ${sets.join(", ")} where id = ?`, vals);
   return getLead(id);
 }
 
-export function moveStage(id: string, stage: Stage, actor = "system") {
-  const lead = updateLead(id, { stage });
-  if (lead) audit(actor, "lead.stage_changed", "lead", id, { stage });
+export async function moveStage(id: string, stage: Stage, actor = "system") {
+  const lead = await updateLead(id, { stage });
+  if (lead) await audit(actor, "lead.stage_changed", "lead", id, { stage });
   return lead;
 }
 
@@ -277,45 +275,38 @@ function similarity(a: string, b: string): number {
   return union === 0 ? 0 : inter / union;
 }
 
-export function runConflictCheck(leadId: string, partyName: string): ConflictCheck {
-  const db = getDb();
-  const firm = getFirm();
+export async function runConflictCheck(leadId: string, partyName: string): Promise<ConflictCheck> {
+  const firm = await getFirm();
   let best: { id: string; name: string; score: number } | undefined;
-  for (const c of listContacts()) {
+  for (const c of await listContacts()) {
     const score = similarity(partyName, c.fullName);
     if (score >= 0.5 && (!best || score > best.score)) best = { id: c.id, name: c.fullName, score };
   }
   const id = uid("cc");
-  db.prepare(
-    `insert into conflict_checks (id, firm_id, lead_id, party_name, status, matched_contact_id, matched_contact_name, similarity, created_at)
-     values (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    id, firm.id, leadId, partyName,
-    best ? "hit_review" : "clear",
-    best?.id ?? null, best?.name ?? null, best?.score ?? null, now()
+  await q(
+    "insert into conflict_checks (id, firm_id, lead_id, party_name, status, matched_contact_id, matched_contact_name, similarity, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [id, firm.id, leadId, partyName, best ? "hit_review" : "clear", best?.id ?? null, best?.name ?? null, best?.score ?? null, now()]
   );
-  audit("ai", best ? "conflict.flagged" : "conflict.clear", "conflict_check", id, { partyName });
-  return rowToConflict(db.prepare("select * from conflict_checks where id = ?").get(id) as Row);
+  await audit("ai", best ? "conflict.flagged" : "conflict.clear", "conflict_check", id, { partyName });
+  return rowToConflict((await qOne("select * from conflict_checks where id = ?", [id]))!);
 }
 
-export function resolveConflict(checkId: string, outcome: "cleared_by_lawyer" | "conflict_confirmed", userId: string) {
-  const db = getDb();
-  const r = db.prepare("select * from conflict_checks where id = ?").get(checkId) as Row | undefined;
+export async function resolveConflict(checkId: string, outcome: "cleared_by_lawyer" | "conflict_confirmed", userId: string) {
+  const r = await qOne("select * from conflict_checks where id = ?", [checkId]);
   if (!r) return undefined;
-  db.prepare("update conflict_checks set status = ?, resolved_by = ?, resolved_at = ? where id = ?")
-    .run(outcome, userId, now(), checkId);
-  audit(userId, `conflict.${outcome}`, "conflict_check", checkId);
-  const check = rowToConflict(db.prepare("select * from conflict_checks where id = ?").get(checkId) as Row);
-  const lead = getLead(check.leadId);
+  await q("update conflict_checks set status = ?, resolved_by = ?, resolved_at = ? where id = ?", [outcome, userId, now(), checkId]);
+  await audit(userId, `conflict.${outcome}`, "conflict_check", checkId);
+  const check = rowToConflict((await qOne("select * from conflict_checks where id = ?", [checkId]))!);
+  const lead = await getLead(check.leadId);
   if (lead) {
     if (outcome === "conflict_confirmed") {
-      moveStage(lead.id, "conflict", userId);
-      updateLead(lead.id, { qualification: "conflict" });
+      await moveStage(lead.id, "conflict", userId);
+      await updateLead(lead.id, { qualification: "conflict" });
     } else if (lead.stage === "conflict") {
-      const stillOpen = listConflicts(lead.id).some((c) => c.status === "hit_review" || c.status === "pending");
+      const stillOpen = (await listConflicts(lead.id)).some((c) => c.status === "hit_review" || c.status === "pending");
       if (!stillOpen) {
-        moveStage(lead.id, "qualified", userId);
-        updateLead(lead.id, { qualification: "qualified" });
+        await moveStage(lead.id, "qualified", userId);
+        await updateLead(lead.id, { qualification: "qualified" });
       }
     }
   }
@@ -328,10 +319,10 @@ function money(cents: number | undefined, currency: string): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(cents / 100);
 }
 
-export function renderTemplate(templateId: string, leadId: string, feeAmountCents?: number, retainerAmountCents?: number): string {
-  const firm = getFirm();
-  const t = getTemplate(templateId);
-  const lead = getLead(leadId);
+export async function renderTemplate(templateId: string, leadId: string, feeAmountCents?: number, retainerAmountCents?: number): Promise<string> {
+  const firm = await getFirm();
+  const t = await getTemplate(templateId);
+  const lead = await getLead(leadId);
   if (!t || !lead) return "";
   return t.bodyMd
     .replaceAll("{{client_name}}", lead.fullName ?? "Client")
@@ -342,33 +333,28 @@ export function renderTemplate(templateId: string, leadId: string, feeAmountCent
     .replaceAll("{{retainer_amount}}", money(retainerAmountCents, firm.currency));
 }
 
-export function createLetter(leadId: string, templateId: string, feeAmountCents?: number, retainerAmountCents?: number): EngagementLetter {
-  const db = getDb();
-  const firm = getFirm();
-  const t = getTemplate(templateId);
+export async function createLetter(leadId: string, templateId: string, feeAmountCents?: number, retainerAmountCents?: number): Promise<EngagementLetter> {
+  const firm = await getFirm();
+  const t = await getTemplate(templateId);
   const id = uid("el");
-  db.prepare(
-    `insert into engagement_letters (id, firm_id, lead_id, template_id, body_md, fee_structure, fee_amount_cents, retainer_amount_cents, status, payment_status, created_at)
-     values (?, ?, ?, ?, ?, ?, ?, ?, 'draft', 'unpaid', ?)`
-  ).run(
-    id, firm.id, leadId, templateId,
-    renderTemplate(templateId, leadId, feeAmountCents, retainerAmountCents),
-    t?.defaultFeeStructure ?? null, feeAmountCents ?? null, retainerAmountCents ?? null, now()
+  await q(
+    "insert into engagement_letters (id, firm_id, lead_id, template_id, body_md, fee_structure, fee_amount_cents, retainer_amount_cents, status, payment_status, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, 'draft', 'unpaid', ?)",
+    [id, firm.id, leadId, templateId, await renderTemplate(templateId, leadId, feeAmountCents, retainerAmountCents), t?.defaultFeeStructure ?? null, feeAmountCents ?? null, retainerAmountCents ?? null, now()]
   );
-  audit("ai", "engagement.drafted", "engagement_letter", id, { leadId });
-  return getLetter(id)!;
+  await audit("ai", "engagement.drafted", "engagement_letter", id, { leadId });
+  return (await getLetter(id))!;
 }
 
-export function approveAndSendLetter(letterId: string, userId: string, whopCheckoutUrl?: string) {
-  const db = getDb();
-  const letter = getLetter(letterId);
+export async function approveAndSendLetter(letterId: string, userId: string, whopCheckoutUrl?: string) {
+  const letter = await getLetter(letterId);
   if (!letter) return undefined;
   const ts = now();
-  db.prepare(
-    "update engagement_letters set status = 'sent', approved_by = ?, approved_at = ?, sent_at = ?, whop_checkout_url = ? where id = ?"
-  ).run(userId, ts, ts, whopCheckoutUrl ?? null, letterId);
-  audit(userId, "engagement.approved_and_sent", "engagement_letter", letterId);
-  moveStage(letter.leadId, "engagement_sent", userId);
+  await q(
+    "update engagement_letters set status = 'sent', approved_by = ?, approved_at = ?, sent_at = ?, whop_checkout_url = ? where id = ?",
+    [userId, ts, ts, whopCheckoutUrl ?? null, letterId]
+  );
+  await audit(userId, "engagement.approved_and_sent", "engagement_letter", letterId);
+  await moveStage(letter.leadId, "engagement_sent", userId);
   return getLetter(letterId);
 }
 
@@ -379,44 +365,40 @@ const DEFAULT_PLAYBOOK: Record<string, string[]> = {
   "Estate Planning": ["Send estate questionnaire", "Draft will + directives", "Schedule signing ceremony", "Deliver executed originals"],
 };
 
-export function markSignedAndPaid(letterId: string, signerName: string): { letter: EngagementLetter; matter: Matter } | undefined {
-  const db = getDb();
-  const firm = getFirm();
-  const letter = getLetter(letterId);
+export async function markSignedAndPaid(letterId: string, signerName: string): Promise<{ letter: EngagementLetter; matter: Matter } | undefined> {
+  const firm = await getFirm();
+  const letter = await getLetter(letterId);
   if (!letter) return undefined;
   const ts = now();
-  db.prepare(
-    "update engagement_letters set status = 'signed', signed_at = ?, signer_name = ?, payment_status = 'paid', paid_at = ? where id = ?"
-  ).run(ts, signerName, ts, letterId);
-  audit("system", "engagement.signed_and_paid", "engagement_letter", letterId);
+  await q(
+    "update engagement_letters set status = 'signed', signed_at = ?, signer_name = ?, payment_status = 'paid', paid_at = ? where id = ?",
+    [ts, signerName, ts, letterId]
+  );
+  await audit("system", "engagement.signed_and_paid", "engagement_letter", letterId);
 
-  const lead = getLead(letter.leadId);
+  const lead = await getLead(letter.leadId);
   const matterId = uid("m");
-  db.prepare(
-    "insert into matters (id, firm_id, lead_id, title, matter_type, status, opened_at) values (?, ?, ?, ?, ?, 'open', ?)"
-  ).run(
-    matterId, firm.id, letter.leadId,
-    `${lead?.fullName ?? "Client"} — ${lead?.matterType ?? "New Matter"}`,
-    lead?.matterType ?? null, ts
+  await q(
+    "insert into matters (id, firm_id, lead_id, title, matter_type, status, opened_at) values (?, ?, ?, ?, ?, 'open', ?)",
+    [matterId, firm.id, letter.leadId, `${lead?.fullName ?? "Client"} — ${lead?.matterType ?? "New Matter"}`, lead?.matterType ?? null, ts]
   );
   const playbook = DEFAULT_PLAYBOOK[lead?.matterType ?? ""] ?? ["Kickoff call with client", "Collect documents"];
-  const taskStmt = db.prepare(
-    "insert into matter_tasks (id, firm_id, matter_id, title, due_at, status, source) values (?, ?, ?, ?, ?, 'todo', 'playbook')"
-  );
-  playbook.forEach((title, i) => {
-    taskStmt.run(uid("task"), firm.id, matterId, title, new Date(Date.now() + (i + 2) * 24 * 3600_000).toISOString());
-  });
-  if (lead) {
-    moveStage(lead.id, "signed", "system");
-    updateLead(lead.id, { convertedMatterId: matterId });
+  for (let i = 0; i < playbook.length; i++) {
+    await q(
+      "insert into matter_tasks (id, firm_id, matter_id, title, due_at, status, source) values (?, ?, ?, ?, ?, 'todo', 'playbook')",
+      [uid("task"), firm.id, matterId, playbook[i], new Date(Date.now() + (i + 2) * 24 * 3600_000).toISOString()]
+    );
   }
-  audit("system", "matter.opened", "matter", matterId, { fromLead: letter.leadId });
-  return { letter: getLetter(letterId)!, matter: getMatter(matterId)! };
+  if (lead) {
+    await moveStage(lead.id, "signed", "system");
+    await updateLead(lead.id, { convertedMatterId: matterId });
+  }
+  await audit("system", "matter.opened", "matter", matterId, { fromLead: letter.leadId });
+  return { letter: (await getLetter(letterId))!, matter: (await getMatter(matterId))! };
 }
 
-export function setTaskStatus(taskId: string, status: MatterTask["status"]) {
-  const db = getDb();
-  db.prepare("update matter_tasks set status = ? where id = ?").run(status, taskId);
-  const r = db.prepare("select * from matter_tasks where id = ?").get(taskId) as Row | undefined;
+export async function setTaskStatus(taskId: string, status: MatterTask["status"]) {
+  await q("update matter_tasks set status = ? where id = ?", [status, taskId]);
+  const r = await qOne("select * from matter_tasks where id = ?", [taskId]);
   return r ? rowToTask(r) : undefined;
 }

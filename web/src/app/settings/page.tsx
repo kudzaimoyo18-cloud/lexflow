@@ -3,11 +3,11 @@ import { getFirm, listTemplates, listContacts, getProfiles } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-export default function SettingsPage() {
-  const firm = getFirm();
-  const templates = listTemplates();
-  const contacts = listContacts();
-  const profiles = getProfiles();
+export default async function SettingsPage() {
+  const firm = await getFirm();
+  const templates = await listTemplates();
+  const contacts = await listContacts();
+  const profiles = await getProfiles();
 
   return (
     <AppShell active="/settings" firmName={firm.name}>

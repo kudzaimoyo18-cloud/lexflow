@@ -15,14 +15,14 @@ type Props = { params: Promise<{ id: string }> };
 
 export default async function LeadDetailPage({ params }: Props) {
   const { id } = await params;
-  const firm = getFirm();
-  const lead = getLead(id);
+  const firm = await getFirm();
+  const lead = await getLead(id);
   if (!lead) notFound();
 
-  const messages = listMessages(id);
-  const conflicts = listConflicts(id);
-  const letter = getLetterForLead(id);
-  const templates = listTemplates().filter(
+  const messages = await listMessages(id);
+  const conflicts = await listConflicts(id);
+  const letter = await getLetterForLead(id);
+  const templates = (await listTemplates()).filter(
     (t) => !t.matterType || t.matterType === lead.matterType
   );
   const openConflicts = conflicts.filter((c) => c.status === "hit_review");

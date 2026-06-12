@@ -1,11 +1,12 @@
-// Local SQLite driver (development). Production uses Neon Postgres via query.ts.
-import Database from "better-sqlite3";
-import fs from "node:fs";
-import path from "node:path";
-import { seedSql } from "./seed-sql";
-import type { Row } from "./query";
+// Query layer: one async interface, two drivers.
+// - DATABASE_URL set  -> Neon serverless Postgres (production)
+// - otherwise         -> local SQLite file (development)
+// SQL is written with `?` placeholders; converted to $1..$n for Postgres.
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 
-const SCHEMA = `
+export type Row = Record<string, unknown>;
+
+const PG_SCHEMA = `
 create table if not exists firms (
   id text primary key,
   name text not null,
@@ -132,7 +133,7 @@ create table if not exists matter_tasks (
   source text not null default 'manual'
 );
 create table if not exists audit_log (
-  id integer primary key autoincrement,
+  id bigint generated always as identity primary key,
   firm_id text not null,
   actor text not null,
   action text not null,
@@ -143,37 +144,48 @@ create table if not exists audit_log (
 );
 `;
 
-let seedPromise: Promise<void> | undefined;
+export const usingPostgres = Boolean(process.env.DATABASE_URL);
 
-function open(): Database.Database {
-  const dataDir =
-    process.env.DATABASE_DIR ??
-    (process.env.VERCEL ? "/tmp/lexflow-data" : path.join(process.cwd(), "data"));
-  fs.mkdirSync(dataDir, { recursive: true });
-  const conn = new Database(path.join(dataDir, "lexflow.db"));
-  conn.pragma("journal_mode = WAL");
-  conn.exec(SCHEMA);
-  const row = conn.prepare("select count(*) as n from firms").get() as { n: number };
-  if (row.n === 0) {
-    seedPromise = seedSql(async (sql, params) => {
-      conn.prepare(sql).run(...params.map((p) => (p === undefined ? null : p)));
-    });
+function toPgPlaceholders(sql: string): string {
+  let i = 0;
+  return sql.replace(/\?/g, () => `$${++i}`);
+}
+
+// ---------- Postgres (Neon) ----------
+type PgState = { sql: NeonQueryFunction<false, false>; ready: Promise<void> };
+const g = globalThis as unknown as { __lexflowPg?: PgState };
+
+function pg(): PgState {
+  if (!g.__lexflowPg) {
+    const sql = neon(process.env.DATABASE_URL!);
+    const ready = (async () => {
+      const statements = PG_SCHEMA.split(";").map((st) => st.trim()).filter(Boolean);
+      for (const st of statements) await sql.query(st);
+      const rows = (await sql.query("select count(*) as n from firms")) as Row[];
+      if (Number(rows[0].n) === 0) {
+        const { seedSql } = await import("./seed-sql");
+        await seedSql(async (q, params) => {
+          await sql.query(toPgPlaceholders(q), params);
+        });
+      }
+    })();
+    g.__lexflowPg = { sql, ready };
   }
-  return conn;
+  return g.__lexflowPg;
 }
 
-const g = globalThis as unknown as { __lexflowSqlite?: Database.Database };
-function getDb(): Database.Database {
-  if (!g.__lexflowSqlite) g.__lexflowSqlite = open();
-  return g.__lexflowSqlite;
+// ---------- shared interface ----------
+export async function q(sqlText: string, params: unknown[] = []): Promise<Row[]> {
+  if (usingPostgres) {
+    const state = pg();
+    await state.ready;
+    return (await state.sql.query(toPgPlaceholders(sqlText), params)) as Row[];
+  }
+  const { sqliteQuery } = await import("./db");
+  return sqliteQuery(sqlText, params);
 }
 
-export async function sqliteQuery(sql: string, params: unknown[]): Promise<Row[]> {
-  const db = getDb();
-  if (seedPromise) await seedPromise;
-  const stmt = db.prepare(sql);
-  const bound = params.map((p) => (p === undefined ? null : p));
-  if (stmt.reader) return stmt.all(...bound) as Row[];
-  stmt.run(...bound);
-  return [];
+export async function qOne(sqlText: string, params: unknown[] = []): Promise<Row | undefined> {
+  const rows = await q(sqlText, params);
+  return rows[0];
 }

@@ -5,9 +5,11 @@ import { getFirm, listMatters, listTasks } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-export default function MattersPage() {
-  const firm = getFirm();
-  const matters = listMatters();
+export default async function MattersPage() {
+  const firm = await getFirm();
+  const matters = await listMatters();
+  const tasksByMatter = new Map<string, Awaited<ReturnType<typeof listTasks>>>();
+  for (const m of matters) tasksByMatter.set(m.id, await listTasks(m.id));
 
   return (
     <AppShell active="/matters" firmName={firm.name}>
@@ -17,7 +19,7 @@ export default function MattersPage() {
       </p>
       <div className="mt-8 grid grid-cols-2 gap-4">
         {matters.map((m) => {
-          const tasks = listTasks(m.id);
+          const tasks = tasksByMatter.get(m.id) ?? [];
           const done = tasks.filter((t) => t.status === "done").length;
           return (
             <Link

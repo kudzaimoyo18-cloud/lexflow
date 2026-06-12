@@ -13,10 +13,10 @@ const NEXT_STATUS = { todo: "doing", doing: "done", done: "todo" } as const;
 
 export default async function MatterDetailPage({ params }: Props) {
   const { id } = await params;
-  const firm = getFirm();
-  const matter = getMatter(id);
+  const firm = await getFirm();
+  const matter = await getMatter(id);
   if (!matter) notFound();
-  const tasks = listTasks(id);
+  const tasks = await listTasks(id);
 
   return (
     <AppShell active="/matters" firmName={firm.name}>
